@@ -4,7 +4,7 @@
 
 The script in its current form is meant to reproduce Fig. 3 in [Adhikari, Leaf & Muthukumar. *J Chem Phys* **149**, 163308 (2018)](https://doi.org/10.1063/1.5029268).
 
-![phase_diagram.pdf]
+![](./phase_diagram.pdf)
 
 ## f.py
 
