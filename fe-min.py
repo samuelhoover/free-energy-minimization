@@ -11,28 +11,36 @@ from typing import Any
 from f import objective, constraints
 
 
-# constants
-eps0 = 625000.0 / (
+### CONSTANTS
+eps0: float = 625000.0 / (
     22468879468420441.0 * np.pi
 )  # vacuum permittivity [A^2 s^4 kg^-1 m^-3]
-e = 1.602e-19  # elementary charge [A s]
-kB = 1.380694e-23  # boltzmann constant [kg m^2 s^-2 K^-1]
+e: float = 1.602e-19  # elementary charge [A s]
+kB: float = 1.380694e-23  # boltzmann constant [kg m^2 s^-2 K^-1]
 
-# parameters
-N = 100.0  # degree of polymerization of polyelectrolyte
-ell = 0.55e-9  # kuhn length [m]
-theta = 257.0  # theta temperature [K]
-p = ell  # dipole length on the monomer [m]
-eps = 80.0  # dielectric constant of water
+### PARAMETERS
+N: float = 100.0  # degree of polymerization of polyelectrolyte
+ell: float = 0.55e-9  # kuhn length [m]
+theta: float = 257.0  # theta temperature [K]
+p: float = ell  # dipole length on the monomer [m]
+eps: float = 80.0  # dielectric constant of water
 
 
-def calc_args(T, phi_p, phi_s) -> tuple[float, ...]:
+def get_sys_params(T: float, phi_p: float, phi_s: float) -> tuple[float, ...]:
+    """
+    Get system parameters.
+
+    Args:
+      - T [float]: absolute temperature [K]
+      - phi_p [float]: total polymer species volume fraction
+      - phi_s [float]: total salt ions volume fraction
+    """
     lB: float = (e**2.0) / (4.0 * np.pi * eps0 * eps * kB * T)  # bjerrum length [m]
     chi: float = theta / (2.0 * T)  # solvent-polyelectrolyte interaction parameter
     phi_pi: float = phi_s / 2.0
     phi_ni: float = phi_s / 2.0
 
-    args: tuple[float, ...] = (
+    sys_params: tuple[float, ...] = (
         N,
         chi,
         lB,
@@ -43,15 +51,24 @@ def calc_args(T, phi_p, phi_s) -> tuple[float, ...]:
         phi_ni,
     )
 
-    return args
+    return sys_params
 
 
-def solve_f(*args, **solver_options) -> optimize.OptimizeResult:
-    phi_p, phi_pi = args[-3:-1]
+def solve_f(
+    *sys_params: tuple[float, ...], **solver_options: dict[str, Any]
+) -> optimize.OptimizeResult:
+    """
+    Solve the free energy expression.
+
+    Args:
+      - sys_params [tuple[float, ...]]: system parameters
+      - solver_options [dict[str, Any]]: parameters for the minimization algorithm
+    """
+    phi_p, phi_pi = sys_params[-3:-1]
     results: optimize.OptimizeResult = optimize.minimize(
         objective,
         x0=(phi_p, phi_pi, 0.3),
-        args=args,
+        sys_params=sys_params,
         method="Nelder-Mead",
         options=solver_options,
     )
@@ -60,19 +77,26 @@ def solve_f(*args, **solver_options) -> optimize.OptimizeResult:
 
 
 def fe_min(**solver_options: dict[str, Any]) -> npt.NDArray[np.float64]:
-    TEMPS = np.array([25, 30, 34]) + 273.0
-    PHI_P = np.arange(0, 0.4, 1e-2)
-    PHI_S = np.arange(0, 0.08, 1e-3)
+    """
+    Define dependent variable search space and call `get_sys_params()` and
+    `solve_f()` to determine phase diagram.
+
+    Args:
+      - solver_options [dict[str, Any]]: parameters for the minimization algorithm
+    """
+    TEMPS: npt.NDArray[np.float64] = np.array([25, 30, 34]) + 273.0
+    PHI_P: npt.NDArray[np.float64] = np.arange(0, 0.4, 1e-2)
+    PHI_S: npt.NDArray[np.float64] = np.arange(0, 0.08, 1e-3)
     phase: npt.NDArray[np.float64] = np.zeros(
         (len(TEMPS) * len(PHI_P) * len(PHI_S), 11)
     )
 
     for i, (T, phi_p, phi_s) in enumerate(product(TEMPS, PHI_P, PHI_S)):
-        args: tuple[float, ...] = calc_args(T, phi_p, phi_s)
-        results: optimize.OptimizeResult = solve_f(*args, **solver_options)
+        sys_params: tuple[float, ...] = get_sys_params(T, phi_p, phi_s)
+        results: optimize.OptimizeResult = solve_f(*sys_params, **solver_options)
 
         if results.success:  # if minimization solution is found
-            res = constraints(results.x, *args)
+            res: npt.NDArray[np.float64] = constraints(results.x, *sys_params)
 
             if np.abs(res[0] - res[4]) > 1e-3:
                 phase[i, :] = np.array(
@@ -95,6 +119,9 @@ def fe_min(**solver_options: dict[str, Any]) -> npt.NDArray[np.float64]:
 
 
 def phase_diagram(phase: npt.NDArray[np.float64], save_fig: bool = True) -> None:
+    """
+    Plot resulting phase diagram from free energy expression solutions.
+    """
     # discard empty rows (i.e., rows with no solutions)
     phase_keep: npt.NDArray[np.float64] = phase[phase.any(axis=1)]
 

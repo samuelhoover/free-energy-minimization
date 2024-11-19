@@ -10,9 +10,16 @@ def xlogx(x: float) -> float:
 
 def entropic(
     phi_p: float, phi_pi: float, phi_ni: float, phi_0: float, *args
-) -> tuple[float, ...]:
+) -> tuple[float, float, float]:
     """
     Entopric contributions from mobile species.
+
+    Args:
+      - phi_p [float]: total polymer species volume fraction
+      - phi_pi [float]: positive ions volume fraction
+      - phi_ni [float]: negative ions volume fraction
+      - phi_0 [float]: solvent volume fraction
+      - args [tuple[float, ...]]: system parameters
     """
     N: float = args[0]
 
@@ -26,6 +33,11 @@ def entropic(
 def excluded_volume(phi_p: float, phi_0: float, *args) -> float:
     """
     Excluded volume effects between polymer and solvent.
+
+    Args:
+      - phi_p [float]: total polymer species volume fraction
+      - phi_0 [float]: solvent volume fraction
+      - args [tuple[float, ...]]: system parameters
     """
     chi: float = args[1]
 
@@ -36,8 +48,13 @@ def excluded_volume(phi_p: float, phi_0: float, *args) -> float:
 
 def electrostatic(phi_p: float, kl, *args) -> float:
     """
-    Electrostatic interactions: charge-charge, charge-dipole, and
-    dipole-dipole.
+    Electrostatic interactions between polymer species: charge-charge,
+    charge-dipole, and dipole-dipole.
+
+    Args:
+      - phi_p [float]: total polymer species volume fraction
+      - kl [float]: ratio of inverse Debye length to Kuhn length
+      - args [tuple[float, ...]]: system parameters
     """
     lB, ell, p = args[2:5]
 
@@ -56,6 +73,9 @@ def electrostatic(phi_p: float, kl, *args) -> float:
 def elec_correlations(kl: float) -> float:
     """
     Correlations among ions near the polymer backbone.
+
+    Args:
+      - kl [float]: ratio of inverse Debye length to Kuhn length
     """
     ffli: float = -(1.0 / (4.0 * np.pi)) * (np.log(1.0 + kl) - kl + 0.5 * (kl**2.0))
 
@@ -67,7 +87,16 @@ def f(
     phi_pi: float,
     phi_ni: float,
     *args: tuple[float, ...],
-) -> float | tuple[float, ...]:
+) -> float:
+    """
+    Free energy expression.
+
+    Args:
+      - phi_p [float]: total polymer species volume fraction
+      - phi_pi [float]: positive ions volume fraction
+      - phi_ni [float]: negative ions volume fraction
+      - args [tuple[float, ...]]: system parameters
+    """
     lB: float = args[2]
     ell: float = args[3]
 
@@ -75,33 +104,43 @@ def f(
     kl: float = np.sqrt(4.0 * np.pi * (lB / ell) * (phi_pi + phi_ni))
 
     # entropic
-    fSp, fSi, fS0 = entropic(phi_p, phi_pi, phi_ni, phi_0, *args)
+    fS: tuple[float, float, float] = entropic(phi_p, phi_pi, phi_ni, phi_0, *args)
+    fSp, fSi, fS0 = fS
 
     # excluded volume
-    fex = excluded_volume(phi_p, phi_0, *args)
+    fex: float = excluded_volume(phi_p, phi_0, *args)
 
     # electrostatics
-    fel = electrostatic(phi_p, kl, *args)
+    fel: float = electrostatic(phi_p, kl, *args)
 
     # electrostatic correlations
-    ffli = elec_correlations(kl)
+    ffli: float = elec_correlations(kl)
 
     return fSp + fSi + fS0 + fex + fel + ffli
 
 
-def constraints(s: npt.NDArray[np.float64], *args) -> npt.NDArray[np.float64]:
+def constraints(
+    s: npt.NDArray[np.float64], *args: tuple[float, ...]
+) -> npt.NDArray[np.float64]:
+    """
+    Define constraint equations here.
+
+    Args:
+      - s [np.ndarray]: solution from minimization algorithm
+      - args [tuple[float, ...]]: system parameters
+    """
     phi_pa, phi_pia, x = s
     phi_p, phi_pi, phi_ni = args[-3:]
 
     # phase A
-    phi_nia = phi_pia
-    phi_0a = 1.0 - phi_pa - phi_pia - phi_nia
+    phi_nia: float = phi_pia
+    phi_0a: float = 1.0 - phi_pa - phi_pia - phi_nia
 
     # phase B
-    phi_pb = (phi_p - (x * phi_pa)) / (1.0 - x)
-    phi_pib = (phi_pi - (x * phi_pia)) / (1.0 - x)
-    phi_nib = (phi_ni - (x * phi_nia)) / (1.0 - x)
-    phi_0b = 1.0 - phi_pb - phi_pib - phi_nib
+    phi_pb: float = (phi_p - (x * phi_pa)) / (1.0 - x)
+    phi_pib: float = (phi_pi - (x * phi_pia)) / (1.0 - x)
+    phi_nib: float = (phi_ni - (x * phi_nia)) / (1.0 - x)
+    phi_0b: float = 1.0 - phi_pb - phi_pib - phi_nib
 
     res: npt.NDArray[np.float64] = np.array(
         [
@@ -121,6 +160,9 @@ def constraints(s: npt.NDArray[np.float64], *args) -> npt.NDArray[np.float64]:
 
 
 def objective(s: npt.NDArray[np.float64], *args: tuple[float, ...]) -> float:
+    """
+    Function to minimize.
+    """
     res: npt.NDArray[np.float64] = constraints(s, *args)
     phi_pa, phi_pia, phi_nia, _, phi_pb, phi_pib, phi_nib, _, x = res
 
