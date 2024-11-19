@@ -5,10 +5,10 @@ from itertools import product
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
-from scipy.optimize import minimize
+from scipy import optimize
 from typing import Any
 
-from f import objective
+from f import objective, constraints
 
 
 # constants
@@ -26,6 +26,39 @@ p = ell  # dipole length on the monomer [m]
 eps = 80.0  # dielectric constant of water
 
 
+def calc_args(T, phi_p, phi_s) -> tuple[float, ...]:
+    lB: float = (e**2.0) / (4.0 * np.pi * eps0 * eps * kB * T)  # bjerrum length [m]
+    chi: float = theta / (2.0 * T)  # solvent-polyelectrolyte interaction parameter
+    phi_pi: float = phi_s / 2.0
+    phi_ni: float = phi_s / 2.0
+
+    args: tuple[float, ...] = (
+        N,
+        chi,
+        lB,
+        ell,
+        p,
+        phi_p,
+        phi_pi,
+        phi_ni,
+    )
+
+    return args
+
+
+def solve_f(*args, **solver_options) -> optimize.OptimizeResult:
+    phi_p, phi_pi = args[-3:-1]
+    results: optimize.OptimizeResult = optimize.minimize(
+        objective,
+        x0=(phi_p, phi_pi, 0.3),
+        args=args,
+        method="Nelder-Mead",
+        options=solver_options,
+    )
+
+    return results
+
+
 def fe_min(**solver_options: dict[str, Any]) -> npt.NDArray[np.float64]:
     TEMPS = np.array([25, 30, 34]) + 273.0
     PHI_P = np.arange(0, 0.4, 1e-2)
@@ -35,46 +68,27 @@ def fe_min(**solver_options: dict[str, Any]) -> npt.NDArray[np.float64]:
     )
 
     for i, (T, phi_p, phi_s) in enumerate(product(TEMPS, PHI_P, PHI_S)):
-        lB = (e**2) / (4 * np.pi * eps0 * eps * kB * T)  # bjerrum length [m]
-        chi = theta / (2 * T)  # solvent-polyelectrolyte interaction parameter
-        phi_pi = phi_s / 2
-        phi_ni = phi_s / 2
+        args: tuple[float, ...] = calc_args(T, phi_p, phi_s)
+        results: optimize.OptimizeResult = solve_f(*args, **solver_options)
 
-        args = (
-            N,
-            chi,
-            lB,
-            ell,
-            p,
-            phi_p,
-            phi_pi,
-            phi_ni,
-        )
-        results = minimize(
-            objective,
-            x0=(phi_p, phi_pi, 0.3),
-            args=args,
-            method="Nelder-Mead",
-            options=solver_options,
-        )
         if results.success:  # if minimization solution is found
-            pa, pia, xa = results.x
+            res = constraints(results.x, *args)
 
-            # phase A
-            nia = pia
-            p0a = 1 - pa - pia - nia
-
-            # phase B
-            pb = (phi_p - (xa * pa)) / (1 - xa)
-            pib = (phi_pi - (xa * pia)) / (1 - xa)
-            nib = (phi_ni - (xa * nia)) / (1 - xa)
-            p0b = 1 - pb - pib - nib
-
-            ftotal = results.fun
-
-            if np.abs(pa - pb) > 1e-3:
+            if np.abs(res[0] - res[4]) > 1e-3:
                 phase[i, :] = np.array(
-                    [T, pa, pb, pia, pib, nia, nib, p0a, p0b, xa, ftotal]
+                    [
+                        T,
+                        res[0],
+                        res[4],
+                        res[1],
+                        res[5],
+                        res[2],
+                        res[6],
+                        res[3],
+                        res[7],
+                        res[8],
+                        results.fun,
+                    ]
                 )
 
     return phase
@@ -82,7 +96,7 @@ def fe_min(**solver_options: dict[str, Any]) -> npt.NDArray[np.float64]:
 
 def phase_diagram(phase: npt.NDArray[np.float64], save_fig: bool = True) -> None:
     # discard empty rows (i.e., rows with no solutions)
-    phase_keep = phase[phase.any(axis=1)]
+    phase_keep: npt.NDArray[np.float64] = phase[phase.any(axis=1)]
 
     fig, ax = plt.subplots()
 
