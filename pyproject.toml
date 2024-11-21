@@ -1,7 +1,7 @@
 [project]
 name = "minimization"
 version = "0.1.0"
-description = "Add your description here"
+description = "N-dimensional free energy minimization script"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
